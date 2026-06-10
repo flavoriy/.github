@@ -1,4 +1,5 @@
 # Production-Grade CI/CD Infrastructure
+
 This repository documents a production-like CI/CD infrastructure for deploying applications to Kubernetes. The goal is to control the full delivery flow from pull request validation, quality checks, image build, GitOps manifest updates, and automated or manually approved deployments.
 
 ## Operating Goals
