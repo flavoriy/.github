@@ -10,56 +10,42 @@ The platform combines GitHub Actions, Terraform, AWS, Docker, k3s, Argo CD, Kust
 
 ## CI/CD Architecture
 
+### Pull Request Validation
+
 ```mermaid
-%%{init: {"flowchart": {"nodeSpacing": 55, "rankSpacing": 85, "curve": "basis"}} }%%
 flowchart LR
-    subgraph Source[Source]
-        Dev[Developer]
-        PR[Pull Request]
-        Merge[Merge to dev / main]
-    end
-
-    subgraph CI[CI validation]
-        Lint[Lint]
-        Typecheck[Typecheck]
-        Test[Tests]
-        BuildCheck[Production build]
-        Sonar[SonarCloud]
-        Gate{Pass?}
-    end
-
-    subgraph CD[Image delivery]
-        OIDC[AWS OIDC]
-        SM[AWS Secrets Manager]
-        Docker[Docker build]
-        Trivy[Trivy scan]
-        GHCR[Push to GHCR]
-        Tag[dev-42 / prod-43]
-    end
-
-    subgraph GitOps[GitOps release]
-        Patch[Patch Kustomize image]
-        Commit[Commit gitops-manifest]
-        Argo[Argo CD sync]
-    end
-
-    subgraph Runtime[k3s runtime]
-        Rollout[Rollout workload]
-        Verify[Verify sync / health / image]
-    end
-
-    Dev --> PR --> Lint --> Typecheck --> Test --> BuildCheck --> Sonar --> Gate
+    PR[Pull Request] --> CI[GitHub Actions CI]
+    CI --> Checks[ESLint / TypeScript / Tests / Build]
+    Checks --> Sonar[SonarCloud Quality Gate]
+    Sonar --> Gate{Passed?}
+    Gate -->|Yes| Merge[Allow merge]
     Gate -->|No| Block[Block merge]
-    Gate -->|Yes| Merge --> OIDC --> SM --> Docker --> Trivy --> GHCR --> Tag --> Patch --> Commit --> Argo --> Rollout --> Verify
+```
+
+### Deployment Through GitOps
+
+```mermaid
+flowchart LR
+    Merge[Merge to dev / main] --> CD[GitHub Actions CD]
+    CD --> Secrets[AWS OIDC + Secrets Manager]
+    Secrets --> Build[Docker build]
+    Build --> Scan[Trivy HIGH / CRITICAL scan]
+    Scan --> GHCR[Push image to GHCR]
+    GHCR --> Tag[dev-42 / prod-43]
+    Tag --> Patch[Patch Kustomize image]
+    Patch --> GitOps[gitops-manifest]
+    GitOps --> Argo[Argo CD sync]
+    Argo --> K3s[k3s rollout]
+    K3s --> Verify[Verify health and image]
 ```
 
 | Stage | Responsibility |
 |---|---|
-| Pull request CI | Runs linting, type checking, tests, build validation, and SonarCloud analysis before merge |
-| Image delivery | Builds the Docker image, scans it with Trivy, and publishes an immutable environment-scoped tag to GHCR |
-| GitOps update | Updates the matching Kustomize image patch in `gitops-manifest` instead of deploying by direct cluster mutation |
-| Runtime sync | Argo CD reconciles the GitOps state into the target k3s environment and verifies the deployed image |
-| Secret loading | GitHub Actions reads CI/CD values from AWS Secrets Manager; Kubernetes runtime secrets are handled by External Secrets Operator |
+| Pull request validation | Runs ESLint, TypeScript validation, unit tests, build checks, coverage reporting, and SonarCloud quality gates before merge |
+| Image delivery | Builds the Docker image, scans HIGH/CRITICAL vulnerabilities with Trivy, and publishes an environment-scoped tag to GHCR |
+| GitOps release | Updates the matching Kustomize image patch in `gitops-manifest` instead of mutating the cluster directly |
+| Runtime verification | Argo CD syncs the GitOps state into k3s and verifies the deployed workload health and image tag |
+| Secret loading | GitHub Actions reads CI/CD values from AWS Secrets Manager; runtime Kubernetes secrets are synchronized through External Secrets Operator |
 
 ## Repository Map
 
