@@ -1,17 +1,62 @@
-# Flavoriy
+# 🌟 Flavoriy: Cloud-Native DevOps & Canary Rollout Platform
 
-Flavoriy is a cloud-native DevOps platform built around TikTo, a Next.js and TypeScript task planning application. It covers continuous integration, container delivery, AWS infrastructure provisioning, and GitOps-based Kubernetes deployment.
+Welcome to **Flavoriy**, a production-grade, end-to-end DevOps demonstration platform. Flavoriy showcases a modern, automated CI/CD pipeline, Infrastructure as Code (IaC), GitOps, and Progressive Canary Deployments. 
 
-The repositories are separated by responsibility: application source code, cloud infrastructure, Kubernetes deployment manifests, and platform-level documentation.
+At the core of the platform is **TikTo**, a task and calendar planning application structured as a microservices monorepo.
 
-## Overview
+---
 
-The platform combines GitHub Actions, Terraform, AWS, Docker, k3s, Argo CD, Kustomize, GHCR, Trivy, SonarCloud, AWS Secrets Manager, and External Secrets Operator into one end-to-end delivery workflow.
+## 🗺️ System Architecture
 
-## CI/CD Architecture
+The following diagram illustrates the network flow, ingress routing via Istio, and telemetry/logging path using Fluent-Bit and AWS OpenSearch:
+
+```mermaid
+flowchart TD
+    %% Traffic Ingress
+    User([Public User]) -->|HTTP/HTTPS| ALB[AWS Application Load Balancer]
+    ALB -->|Istio Gateway| Ingress[Istio Ingress Gateway]
+    Ingress -->|VirtualService| Gateway[TikTo API Gateway]
+    
+    %% Gateway Routing to Microservices
+    Gateway -->|Internal Routing| Profile[Profile API]
+    Gateway -->|Internal Routing| Tasks[Tasks API]
+    Gateway -->|Internal Routing| Calendar[Calendar API]
+    Gateway -->|Internal Routing| Dashboard[Dashboard API]
+    
+    %% Database Layer
+    Profile --> DB[(Supabase Postgres)]
+    Tasks --> DB
+    Calendar --> DB
+    
+    %% Observability & Logs
+    Pods[All App & Gateway Pods] -->|Stdout Logs| FluentBit[Fluent-Bit DaemonSet]
+    FluentBit -->|HTTPS Private Link| OpenSearch[AWS OpenSearch Cluster]
+    
+    %% GitOps & Automation
+    Developer[DevOps / Git Push] -->|Git Tag v*| GitHub[GitHub Actions]
+    GitHub -->|Push Manifests| GitOpsRepo[GitOps Manifests Repo]
+    GitOpsRepo -->|Reconcile| ArgoCD[Argo CD]
+    ArgoCD -->|Progressive Delivery| ArgoRollouts[Argo Rollouts]
+    ArgoRollouts -->|Promotes / Rolls Back| Pods
+```
+
+---
+
+## 📂 Repository Structure
+
+The Flavoriy project is organized into three major sub-repositories/directories, separating application logic, cloud infrastructure, and deployment manifests:
+
+| Folder / Repo | Purpose | Core Technologies |
+| :--- | :--- | :--- |
+| [**`TikTo`**](../TikTo) | Application monorepo containing the web frontend, API gateway, and individual backend microservices. | Next.js, Node.js, Prisma, Supabase, Docker, GitHub Actions |
+| [**`IaC`**](../IaC) | Infrastructure as Code configuration to provision the AWS cloud resources, EKS cluster, private OpenSearch, and networking. | Terraform, AWS (VPC, EKS, OpenSearch, Secrets Manager), Tailscale VPN |
+| [**`gitops-manifest`**](../gitops-manifest) | Continuous Delivery repository containing Kustomize templates, Argo CD application specs, and Argo Rollouts progressive canary workflows. | Kustomize, Argo CD, Argo Rollouts, External Secrets Operator, Istio |
+
+---
+
+## 🔄 CI/CD & Delivery Flow
 
 ### Pull Request Validation
-
 ```mermaid
 flowchart LR
     PR[Pull Request] --> CI[GitHub Actions CI]
@@ -22,86 +67,40 @@ flowchart LR
     Gate -->|No| Block[Block merge]
 ```
 
-### Deployment Through GitOps
-
+### Progressive Canary Delivery
 ```mermaid
 flowchart LR
-    Merge[Merge to dev / main] --> CD[GitHub Actions CD]
+    Merge[Merge / Tag v*] --> CD[GitHub Actions CD]
     CD --> Secrets[AWS OIDC + Secrets Manager]
-    Secrets --> Build[Docker build]
-    Build --> Scan[Trivy HIGH / CRITICAL scan]
-    Scan --> GHCR[Push image to GHCR]
-    GHCR --> Tag[dev-42 / prod-43]
-    Tag --> Patch[Patch Kustomize image]
-    Patch --> GitOps[gitops-manifest]
-    GitOps --> Argo[Argo CD sync]
-    Argo --> K3s[k3s rollout]
-    K3s --> Verify[Verify health and image]
+    Secrets --> Build[Docker Build & Trivy Scan]
+    Build --> GHCR[Push to GHCR]
+    GHCR --> Patch[Patch Kustomize Image]
+    Patch --> GitOps[gitops-manifest Commit]
+    GitOps --> Argo[Argo CD Sync]
+    Argo --> Rollout[Argo Rollout Canary]
+    Rollout --> Test[Smoke Test & OpenSearch Check]
+    Test --> Promote[100% Stable Promotion]
 ```
 
-| Stage | Responsibility |
-|---|---|
-| Pull request validation | Runs ESLint, TypeScript validation, unit tests, build checks, coverage reporting, and SonarCloud quality gates before merge |
-| Image delivery | Builds the Docker image, scans HIGH/CRITICAL vulnerabilities with Trivy, and publishes an environment-scoped tag to GHCR |
-| GitOps release | Updates the matching Kustomize image patch in `gitops-manifest` instead of mutating the cluster directly |
-| Runtime verification | Argo CD syncs the GitOps state into k3s and verifies the deployed workload health and image tag |
-| Secret loading | GitHub Actions reads CI/CD values from AWS Secrets Manager; runtime Kubernetes secrets are synchronized through External Secrets Operator |
+---
 
-## Repository Map
+## 🚀 Key Features
 
-| Repository | Purpose | Main technologies |
-|---|---|---|
-| `TikTo` | Application source code, reusable CI/CD workflows, Docker image delivery, Trivy scanning, GHCR publishing, GitOps updates, and Argo CD verification. | Next.js, TypeScript, React, Supabase, Prisma, GitHub Actions, Docker, Trivy, SonarCloud |
-| `IaC` | AWS infrastructure provisioning for development and production-like k3s environments. | Terraform, AWS VPC, EC2, EIP, Security Groups, S3 backend, DynamoDB locking, Checkov |
-| `gitops-manifest` | Kubernetes desired state for the application. | Kubernetes, Kustomize, Argo CD, External Secrets Operator, PodDisruptionBudget |
-| `.github` | Organization profile and platform-level documentation. | GitHub profile README, architecture documentation |
+* **Microservice Monorepo (`TikTo`)**: Next.js App Router acting as the user interface and Backend-for-Frontend (BFF), backed by an Express-based API Gateway, and 5 microservices communicating via internal cluster DNS.
+* **Infrastructure as Code (`IaC`)**: Automated provisioning of VPC, EKS cluster (with Spot instance node groups), AWS OpenSearch, and AWS Secrets Manager via modular Terraform.
+* **Progressive Canary Delivery**: Argo Rollouts uses Istio to shift traffic incrementally. Integrated with automated Kubernetes smoke-test jobs (200 requests) and real-time OpenSearch log queries to verify deployment safety before promotion.
+* **Secret Management**: External Secrets Operator synchronizes credentials directly from AWS Secrets Manager into Kubernetes Secrets, keeping secret values completely out of git.
 
-## Key Capabilities
+---
 
-- Cloud-native delivery platform for a Next.js and TypeScript application, covering CI, container delivery, AWS infrastructure provisioning, and Kubernetes deployment.
-- Reusable GitHub Actions workflows for ESLint analysis, TypeScript validation, unit testing, coverage reporting, application builds, and SonarCloud quality-gate checks.
-- Automated Docker image delivery with environment-scoped version tags, Trivy HIGH/CRITICAL vulnerability scanning, and GHCR publishing.
-- Terraform modules for AWS networking and compute resources, including VPC, subnets, route tables, security groups, Elastic IPs, and EC2 instances.
-- Development and production-like k3s environments, including a three-server production-like topology across three Availability Zones.
-- GitOps-based Kubernetes deployment with Argo CD and Kustomize overlays, with runtime secrets synchronized from AWS Secrets Manager through External Secrets Operator.
-- Terraform remote state with Amazon S3 and DynamoDB locking, Checkov scanning, manual apply/destroy workflows, and EC2 start/stop automation for cost control.
+## 🛠️ Technology Stack
 
-## Delivery Workflow
-
-1. A pull request runs the CI pipeline: linting, type checking, tests, build validation, and SonarCloud analysis.
-2. Merging to `dev` runs the CD pipeline and deploys to the development environment.
-3. Merging to `main` runs the CD pipeline through the protected production environment.
-4. The CD workflow assumes AWS credentials through OIDC, loads runtime values from AWS Secrets Manager, builds and scans the Docker image, and pushes it to GHCR.
-5. The workflow updates the matching Kustomize image patch in `gitops-manifest`.
-6. Argo CD syncs the cluster from Git and verifies the deployed image.
-
-## Environment Design
-
-| Environment | Infrastructure | Deployment model | Purpose |
-|---|---|---|---|
-| Development | One k3s node on EC2 | One application replica, dev Kustomize overlay | Fast integration validation |
-| Production-like | Three k3s server nodes across three AZs | Three replicas, topology spread, PDB, prod Kustomize overlay | Demonstrates multi-node Kubernetes and GitOps operations |
-
-The production-like environment is intentionally compact and cost-aware while still covering important operational concerns: multi-node k3s, GitOps reconciliation, runtime secrets, workload spreading, and rollback through Git.
-
-## Security and Operations
-
-- GitHub Actions OIDC for short-lived AWS access in application delivery workflows.
-- AWS Secrets Manager for shared CI/CD values and runtime environment secrets.
-- External Secrets Operator to sync AWS secrets into Kubernetes.
-- Trivy image scanning before publishing application images.
-- SonarCloud quality gate in CI.
-- Checkov scanning for Terraform changes.
-- Remote Terraform state in S3 with DynamoDB locking.
-
-## Technology Stack
-
-| Area | Tools |
-|---|---|
-| Application | Next.js, React, TypeScript, Tailwind CSS, Supabase, Prisma, Zod |
-| CI/CD | GitHub Actions, reusable workflows, composite actions |
-| Container | Docker, GHCR, Trivy |
-| Infrastructure | Terraform, AWS VPC, EC2, EIP, S3, DynamoDB |
-| Kubernetes | k3s, Kustomize, Argo CD |
-| Secrets | AWS Secrets Manager, External Secrets Operator |
-| Quality and security | SonarCloud, ESLint, Vitest, Checkov |
+| Area | Tools & Technologies |
+| :--- | :--- |
+| **Application** | Next.js, React, TypeScript, Tailwind CSS, Supabase, Prisma, Zod |
+| **CI/CD** | GitHub Actions, reusable workflows, composite actions, OIDC authentication |
+| **Container & Security** | Docker, GHCR, Trivy Vulnerability Scanning |
+| **Infrastructure** | Terraform, AWS VPC, EKS, EC2, EIP, S3, DynamoDB |
+| **Kubernetes / GitOps** | Argo CD, Argo Rollouts, Kustomize, Istio Service Mesh |
+| **Secrets** | AWS Secrets Manager, External Secrets Operator |
+| **Quality & Logging** | SonarCloud, ESLint, Vitest, Checkov, Fluent-Bit, AWS OpenSearch |
