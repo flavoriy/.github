@@ -1,3 +1,4 @@
+
 # 🌟 Flavoriy: Cloud-Native DevOps & Canary Rollout Platform
 
 Welcome to **Flavoriy**, a production-grade, end-to-end DevOps demonstration platform. Flavoriy showcases a modern, automated CI/CD pipeline, Infrastructure as Code (IaC), GitOps, and Progressive Canary Deployments. 
@@ -9,7 +10,7 @@ At the core of the platform is **TikTo**, a task and calendar planning applicati
 Watch the Flavoriy platform in action via the demo video file in this repository:
 
 - Demo video:
-<video src="asset/demo.mp4" width="100%" controls></video>
+[![Link Video Demo]](https://drive.google.com/file/d/1kddM6QnQ3sY4wKi87aM86xotZ-vXINXj/view?usp=sharing)
 
 ---
 
