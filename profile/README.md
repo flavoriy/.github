@@ -8,9 +8,8 @@ At the core of the platform is **TikTo**, a task and calendar planning applicati
 
 Watch the Flavoriy platform in action via the demo video file in this repository:
 
-- Demo video: `docs/demo.mp4`
-
-> Replace the placeholder path above with the actual repo path once the video file is pushed.
+- Demo video:
+![Demo](https://github.com/flavoriy/.github/blob/main/asset/demo.mp4)
 
 ---
 
