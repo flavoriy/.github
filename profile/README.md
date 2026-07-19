@@ -1,114 +1,90 @@
+# 👋 Hi, This repository flavoriy focused on **CI/CD, Kubernetes, GitOps, and Infrastructure as Code on AWS**.
+---
 
-# 🌟 Flavoriy: Cloud-Native DevOps & Canary Rollout Platform
+## 🚀 TikTo — Task & Calendar Planning App
 
-Welcome to **Flavoriy**, a production-grade, end-to-end DevOps demonstration platform. Flavoriy showcases a modern, automated CI/CD pipeline, Infrastructure as Code (IaC), GitOps, and Progressive Canary Deployments. 
+TikTo is a task/calendar management app built as a monorepo, with one web frontend (BFF) and five internal microservices. It's the project where I put a full CI/CD + GitOps + IaC pipeline into real practice, not just a demo.
 
-At the core of the platform is **TikTo**, a task and calendar planning application structured as a microservices monorepo.
+The system is split across **3 repos**, each owning a distinct layer of responsibility:
 
-## 🎬 Demo Video
-
-Watch the Flavoriy platform in action via the demo video file in this repository:
-
-- Demo video:
-[![Link Video Demo]](https://drive.google.com/file/d/1kddM6QnQ3sY4wKi87aM86xotZ-vXINXj/view?usp=sharing)
+| Repo | Role | What's inside |
+|---|---|---|
+| [**tikto**](https://github.com/flavoriy/tikto) | Application code | Next.js frontend + 5 microservices, CI pipeline (test/scan/build/push image) |
+| [**gitops-manifest**](https://github.com/flavoriy/gitops-manifest) | Desired state (GitOps) | Kubernetes manifests (Kustomize), Argo CD Applications, Argo Rollouts canary |
+| [**Infrastructure-as-Code**](https://github.com/flavoriy/Infrastructure-as-Code) | Cloud infrastructure | Terraform modules provisioning VPC, EKS, EC2 (Argo CD / K3s dev), OpenSearch, Secrets Manager on AWS |
 
 ---
 
-## 🗺️ System Architecture
-
-The following diagram illustrates the network flow, ingress routing via Istio, and telemetry/logging path using Fluent-Bit and AWS OpenSearch:
+## 🗺️ System Overview
 
 ```mermaid
-flowchart TD
-    %% Traffic Ingress
-    User([Public User]) -->|HTTP/HTTPS| ALB[AWS Application Load Balancer]
-    ALB -->|Istio Gateway| Ingress[Istio Ingress Gateway]
-    Ingress -->|VirtualService| Gateway[TikTo API Gateway]
-    
-    %% Gateway Routing to Microservices
-    Gateway -->|Internal Routing| Profile[Profile API]
-    Gateway -->|Internal Routing| Tasks[Tasks API]
-    Gateway -->|Internal Routing| Calendar[Calendar API]
-    Gateway -->|Internal Routing| Dashboard[Dashboard API]
-    
-    %% Database Layer
-    Profile --> DB[(Supabase Postgres)]
-    Tasks --> DB
-    Calendar --> DB
-    
-    %% Observability & Logs
-    Pods[All App & Gateway Pods] -->|Stdout Logs| FluentBit[Fluent-Bit DaemonSet]
-    FluentBit -->|HTTPS Private Link| OpenSearch[AWS OpenSearch Cluster]
-    
-    %% GitOps & Automation
-    Developer[DevOps / Git Push] -->|Git Tag v*| GitHub[GitHub Actions]
-    GitHub -->|Push Manifests| GitOpsRepo[GitOps Manifests Repo]
-    GitOpsRepo -->|Reconcile| ArgoCD[Argo CD]
-    ArgoCD -->|Progressive Delivery| ArgoRollouts[Argo Rollouts]
-    ArgoRollouts -->|Promotes / Rolls Back| Pods
+flowchart TB
+    subgraph Infra["Infrastructure-as-Code (Terraform)"]
+        VPC[Multi-AZ VPC]
+        EKS[EKS Cluster - Prod]
+        EC2[EC2: Argo CD + K3s Dev]
+        OS[OpenSearch Logging]
+        SM[Secrets Manager]
+    end
+
+    subgraph App["tikto (Application)"]
+        Dev[Developer Push/PR]
+        CI[CI: Lint, Test, SonarCloud]
+        Build[Build + Trivy Scan]
+        GHCR[Push image to GHCR]
+    end
+
+    subgraph GitOps["gitops-manifest (Desired State)"]
+        Patch[Update patch-image.yaml]
+        Argo[Argo CD Sync]
+        Rollout[Argo Rollouts Canary]
+    end
+
+    Dev --> CI --> Build --> GHCR
+    GHCR --> Patch --> Argo
+    Argo --> EKS
+    Rollout --> EKS
+    EKS --> OS
+    EKS --> SM
+    EC2 -.provisions.-> Argo
 ```
 
 ---
 
-## 📂 Repository Structure
+## 🔄 End-to-end CI/CD flow
 
-The Flavoriy project is organized into three major sub-repositories/directories, separating application logic, cloud infrastructure, and deployment manifests:
+1. **Code (`tikto` repo)**
+   A developer opens a PR → the pipeline runs lint, typecheck, unit tests (Vitest), and a SonarCloud Quality Gate scan.
 
-| Folder / Repo | Purpose | Core Technologies |
-| :--- | :--- | :--- |
-| [**`TikTo`**](../TikTo) | Application monorepo containing the web frontend, API gateway, and individual backend microservices. | Next.js, Node.js, Prisma, Supabase, Docker, GitHub Actions |
-| [**`IaC`**](../IaC) | Infrastructure as Code configuration to provision the AWS cloud resources, EKS cluster, private OpenSearch, and networking. | Terraform, AWS (VPC, EKS, OpenSearch, Secrets Manager), Tailscale VPN |
-| [**`gitops-manifest`**](../gitops-manifest) | Continuous Delivery repository containing Kustomize templates, Argo CD application specs, and Argo Rollouts progressive canary workflows. | Kustomize, Argo CD, Argo Rollouts, External Secrets Operator, Istio |
+2. **Build & Security**
+   On merge / release tag → build a Docker image (using a base Dockerfile pattern to save build time) → scan it with **Trivy** (blocks on HIGH/CRITICAL findings) → publish to **GHCR**.
 
----
+3. **GitOps promotion (`gitops-manifest` repo)**
+   The `tikto` CI pipeline automatically commits the new image tag to `patch-image.yaml` in the `gitops-manifest` repo. This is the handoff point between "code" and "the cluster's desired state."
 
-## 🔄 CI/CD & Delivery Flow
+4. **Deploy (Argo CD on EKS)**
+   Argo CD detects the change in `gitops-manifest` and automatically syncs the workload to EKS. In **prod**, rollout uses **Argo Rollouts** (canary), gradually shifting traffic 10% → 50% → 80% → 100%, with automated smoke tests and log-based error monitoring via OpenSearch to auto-rollback if the error threshold is exceeded.
 
-### Pull Request Validation
-```mermaid
-flowchart LR
-    PR[Pull Request] --> CI[GitHub Actions CI]
-    CI --> Checks[ESLint / TypeScript / Tests / Build]
-    Checks --> Sonar[SonarCloud Quality Gate]
-    Sonar --> Gate{Passed?}
-    Gate -->|Yes| Merge[Allow merge]
-    Gate -->|No| Block[Block merge]
-```
-
-### Progressive Canary Delivery
-```mermaid
-flowchart LR
-    Merge[Merge / Tag v*] --> CD[GitHub Actions CD]
-    CD --> Secrets[AWS OIDC + Secrets Manager]
-    Secrets --> Build[Docker Build & Trivy Scan]
-    Build --> GHCR[Push to GHCR]
-    GHCR --> Patch[Patch Kustomize Image]
-    Patch --> GitOps[gitops-manifest Commit]
-    GitOps --> Argo[Argo CD Sync]
-    Argo --> Rollout[Argo Rollout Canary]
-    Rollout --> Test[Smoke Test & OpenSearch Check]
-    Test --> Promote[100% Stable Promotion]
-```
+5. **Underlying infrastructure (`Infrastructure-as-Code` repo)**
+   All the AWS infrastructure below (VPC, EKS, EC2 running Argo CD / K3s dev, OpenSearch, Secrets Manager) is provisioned with Terraform, fully decoupled from the application's CI/CD.
 
 ---
 
-## 🚀 Key Features
+## 🌱 Dev vs Prod
 
-* **Microservice Monorepo (`TikTo`)**: Next.js App Router acting as the user interface and Backend-for-Frontend (BFF), backed by an Express-based API Gateway, and 5 microservices communicating via internal cluster DNS.
-* **Infrastructure as Code (`IaC`)**: Automated provisioning of VPC, EKS cluster (with Spot instance node groups), AWS OpenSearch, and AWS Secrets Manager via modular Terraform.
-* **Progressive Canary Delivery**: Argo Rollouts uses Istio to shift traffic incrementally. Integrated with automated Kubernetes smoke-test jobs (200 requests) and real-time OpenSearch log queries to verify deployment safety before promotion.
-* **Secret Management**: External Secrets Operator synchronizes credentials directly from AWS Secrets Manager into Kubernetes Secrets, keeping secret values completely out of git.
+| | **Dev** | **Prod** |
+|---|---|---|
+| Compute | Single K3s on EC2 (via Tailscale VPN, not public) | EKS Cluster (Spot Node Group) |
+| Deploy strategy | Standard Deployment | Argo Rollouts Canary + automated Analysis |
+| Traffic entry | Internal via VPN | AWS ALB → Istio Ingress Gateway |
+| Purpose | Fast iteration, manifest sanity checks | Production traffic, with smoke tests + log-based rollback |
 
 ---
 
-## 🛠️ Technology Stack
+## 🛠️ Core tech stack
 
-| Area | Tools & Technologies |
-| :--- | :--- |
-| **Application** | Next.js, React, TypeScript, Tailwind CSS, Supabase, Prisma, Zod |
-| **CI/CD** | GitHub Actions, reusable workflows, composite actions, OIDC authentication |
-| **Container & Security** | Docker, GHCR, Trivy Vulnerability Scanning |
-| **Infrastructure** | Terraform, AWS VPC, EKS, EC2, EIP, S3, DynamoDB |
-| **Kubernetes / GitOps** | Argo CD, Argo Rollouts, Kustomize, Istio Service Mesh |
-| **Secrets** | AWS Secrets Manager, External Secrets Operator |
-| **Quality & Logging** | SonarCloud, ESLint, Vitest, Checkov, Fluent-Bit, AWS OpenSearch |
+`Terraform` `AWS (VPC, EKS, EC2, ALB, OpenSearch, Secrets Manager)` `Kubernetes` `K3s` `Argo CD` `Argo Rollouts` `Istio` `GitHub Actions` `Docker` `Trivy` `SonarCloud` `Next.js` `TypeScript`
+
+---
+
+📌 For architecture details, operational commands, and troubleshooting, see the README of each corresponding repo above.
